@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบเช็คชื่อเข้าแถวประจำห้องเรียน (Classroom Attendance Tracker)</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Prompt', 'sans-serif'] },
+                    colors: {
+                        present: { DEFAULT: '#10B981', light: '#D1FAE5', text: '#065F46' },
+                        late: { DEFAULT: '#F59E0B', light: '#FEF3C7', text: '#92400E' },
+                        leave: { DEFAULT: '#3B82F6', light: '#DBEAFE', text: '#1E40AF' },
+                        absent: { DEFAULT: '#EF4444', light: '#FEE2E2', text: '#991B1B' },
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Prompt', sans-serif; background-color: #f8fafc; -webkit-tap-highlight-color: transparent; }
+        .btn-status { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); touch-action: manipulation; }
+        .btn-status:active { transform: scale(0.92); }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    </style>
+</head>
+<body class="text-slate-800 min-h-screen pb-12 selection:bg-indigo-500 selection:text-white">
+
+    <header class="bg-indigo-600 text-white shadow-lg sticky top-0 z-30">
+        <div class="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center gap-2">
+            <div class="flex items-center space-x-3">
+                <div class="bg-white/20 p-2.5 rounded-xl backdrop-blur-sm">
+                    <i class="fa-solid fa-clipboard-user text-2xl text-white"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold leading-tight">เช็คชื่อเข้าแถว (หัวหน้าห้อง)</h1>
+                    <div class="flex items-center gap-2 text-xs text-indigo-100">
+                        <span id="syncStatus" class="inline-flex items-center gap-1.5 font-medium">
+                            <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span> กำลังเชื่อมต่อ...
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <div class="flex items-center space-x-2">
+                <button onclick="openManageModal()" class="bg-indigo-500 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-medium flex items-center gap-1.5 transition shadow-sm border border-indigo-400/30">
+                    <i class="fa-solid fa-user-gear"></i>
+                    <span>จัดการนักเรียน</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-4xl mx-auto px-4 mt-6">
+
+        <div id="resetAlert" class="hidden mb-4 bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-xl shadow-sm">
+            <div class="flex items-start">
+                <i class="fa-solid fa-bell text-amber-500 mt-0.5 mr-3"></i>
+                <div class="flex-1">
+                    <h4 class="font-bold text-amber-800 text-sm">เริ่มต้นวันใหม่ (00:00 น.)</h4>
+                    <p class="text-xs text-amber-700 mt-0.5">ระบบสลับแบบฟอร์มเช็คชื่อเป็นวันปัจจุบันเรียบร้อยแล้ว รายชื่อนักเรียนในระบบยังคงอยู่ครบถ้วน</p>
+                </div>
+                <button onclick="document.getElementById('resetAlert').classList.add('hidden')" class="ml-2 text-amber-500 hover:text-amber-700">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-4 mb-6">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div class="flex items-center space-x-3">
+                    <div class="bg-indigo-50 text-indigo-600 p-3 rounded-xl">
+                        <i class="fa-regular fa-calendar-days text-xl"></i>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-400 font-medium">เลือกวันที่เช็คชื่อ</label>
+                        <input type="date" id="attendanceDate" onchange="changeDate()" class="font-bold text-slate-700 bg-transparent border-b-2 border-indigo-200 focus:border-indigo-600 outline-none pb-0.5 text-sm md:text-base cursor-pointer">
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2">
+                    <button onclick="markAll('present')" class="flex-1 md:flex-none px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-1.5 active:scale-95">
+                        <i class="fa-solid fa-check"></i> มาทั้งหมด
+                    </button>
+                    <button onclick="markAll('absent')" class="flex-1 md:flex-none px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-1.5 active:scale-95">
+                        <i class="fa-solid fa-xmark"></i> ขาดทั้งหมด
+                    </button>
+                    <button onclick="resetTodayAttendance()" class="flex-1 md:flex-none px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-1.5 active:scale-95" title="ล้างค่าสถานะเช็คชื่อของวันนี้">
+                        <i class="fa-solid fa-rotate-left"></i> รีเซ็ต
+                    </button>
+                    <button onclick="exportToImage()" class="w-full md:w-auto px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-medium text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 active:scale-95">
+                        <i class="fa-solid fa-share-nodes"></i>
+                        <span>เซฟรูปภาพ / แชร์ลง LINE</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+            <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-sm flex items-center space-x-3">
+                <div class="bg-slate-100 text-slate-600 w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg">
+                    <i class="fa-solid fa-users"></i>
+                </div>
+                <div>
+                    <div class="text-xs text-slate-400 font-medium">นักเรียนทั้งหมด</div>
+                    <div id="statTotal" class="text-lg font-bold text-slate-800">0 คน</div>
+                </div>
+            </div>
+            <div class="bg-emerald-50/70 p-3.5 rounded-2xl border border-emerald-100 shadow-sm flex items-center space-x-3">
+                <div class="bg-emerald-500 text-white w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg shadow-sm">
+                    <i class="fa-solid fa-user-check"></i>
+                </div>
+                <div>
+                    <div class="text-xs text-emerald-700 font-medium">มา</div>
+                    <div id="statPresent" class="text-lg font-bold text-emerald-700">0</div>
+                </div>
+            </div>
+            <div class="bg-amber-50/70 p-3.5 rounded-2xl border border-amber-100 shadow-sm flex items-center space-x-3">
+                <div class="bg-amber-500 text-white w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg shadow-sm">
+                    <i class="fa-solid fa-user-clock"></i>
+                </div>
+                <div>
+                    <div class="text-xs text-amber-700 font-medium">สาย</div>
+                    <div id="statLate" class="text-lg font-bold text-amber-700">0</div>
+                </div>
+            </div>
+            <div class="bg-blue-50/70 p-3.5 rounded-2xl border border-blue-100 shadow-sm flex items-center space-x-3">
+                <div class="bg-blue-500 text-white w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg shadow-sm">
+                    <i class="fa-solid fa-envelope-open-text"></i>
+                </div>
+                <div>
+                    <div class="text-xs text-blue-700 font-medium">ลา</div>
+                    <div id="statLeave" class="text-lg font-bold text-blue-700">0</div>
+                </div>
+            </div>
+            <div class="bg-rose-50/70 p-3.5 rounded-2xl border border-rose-100 shadow-sm col-span-2 sm:col-span-1 flex items-center space-x-3">
+                <div class="bg-rose-500 text-white w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg shadow-sm">
+                    <i class="fa-solid fa-user-xmark"></i>
+                </div>
+                <div>
+                    <div class="text-xs text-rose-700 font-medium">ขาด</div>
+                    <div id="statAbsent" class="text-lg font-bold text-rose-700">0</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+            <div class="px-5 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/60">
+                <h3 class="font-bold text-slate-700 flex items-center gap-2">
+                    <i class="fa-solid fa-list-check text-indigo-500"></i> รายชื่อเช็คชื่อ
+                </h3>
+                <span id="unmarkedBadge" class="text-xs bg-amber-100 text-amber-800 px-3 py-1 rounded-full font-semibold">
+                    ยังไม่เช็ค 0 คน
+                </span>
+            </div>
+
+            <div id="emptyList" class="hidden p-10 text-center">
+                <div class="w-16 h-16 bg-indigo-50 text-indigo-400 rounded-2xl flex items-center justify-center mx-auto mb-3 text-2xl shadow-inner">
+                    <i class="fa-solid fa-user-plus"></i>
+                </div>
+                <p class="text-slate-700 font-bold mb-1">ยังไม่มีรายชื่อนักเรียนในระบบ</p>
+                <p class="text-xs text-slate-400 mb-4">กดปุ่มจัดการนักเรียนเพื่อเพิ่มรายชื่อรายบุคคลหรือนำเข้าทีละหลายคน</p>
+                <button onclick="openManageModal()" class="px-4 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-xl hover:bg-indigo-700 transition shadow-sm">
+                    + เพิ่มรายชื่อนักเรียน
+                </button>
+            </div>
+
+            <div id="studentList" class="divide-y divide-slate-100"></div>
+        </div>
+    </main>
+
+    <!-- Modal: Manage Students -->
+    <div id="manageModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
+            <div class="px-5 py-4 bg-indigo-600 text-white flex justify-between items-center">
+                <h3 class="font-bold text-base flex items-center gap-2">
+                    <i class="fa-solid fa-user-gear"></i> จัดการรายชื่อนักเรียน
+                </h3>
+                <button onclick="closeManageModal()" class="text-indigo-200 hover:text-white text-xl">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="p-5 overflow-y-auto space-y-5 flex-1">
+                <div class="flex border-b border-slate-200">
+                    <button id="tabSingleBtn" onclick="switchManageTab('single')" class="py-2.5 px-4 text-xs font-semibold border-b-2 border-indigo-600 text-indigo-600">
+                        + เพิ่มรายคน
+                    </button>
+                    <button id="tabBulkBtn" onclick="switchManageTab('bulk')" class="py-2.5 px-4 text-xs font-semibold text-slate-400 hover:text-slate-600">
+                        <i class="fa-solid fa-file-import mr-1"></i> นำเข้าแบบชุด (Bulk)
+                    </button>
+                </div>
+
+                <div id="tabSingle" class="space-y-3">
+                    <form onsubmit="addSingleStudent(event)" class="space-y-2.5">
+                        <div class="grid grid-cols-3 gap-2">
+                            <div>
+                                <label class="block text-[11px] text-slate-500 font-medium mb-1">เลขที่</label>
+                                <input type="number" min="1" id="singleNoInput" placeholder="อัตโนมัติ" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none">
+                            </div>
+                            <div class="col-span-2">
+                                <label class="block text-[11px] text-slate-500 font-medium mb-1">ชั้น</label>
+                                <input type="text" id="singleClassInput" placeholder="เช่น ม.1/1" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] text-slate-500 font-medium mb-1">ชื่อ-สกุล</label>
+                            <div class="flex gap-2">
+                                <input type="text" id="singleNameInput" placeholder="เช่น นายสมชาย ใจดี" required class="flex-1 min-w-0 px-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none">
+                                <button type="submit" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-sm">
+                                    เพิ่ม
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <div id="tabBulk" class="space-y-3 hidden">
+                    <div>
+                        <label class="block text-[11px] text-slate-500 font-medium mb-1">ชั้น (ใช้กับทุกคนที่ไม่ได้ระบุชั้นในบรรทัด)</label>
+                        <input type="text" id="bulkClassInput" placeholder="เช่น ม.1/1" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none">
+                    </div>
+                    <p class="text-xs text-slate-500">วางรายชื่อ 1 บรรทัดต่อ 1 คน รูปแบบ <b>เลขที่ ชื่อ-สกุล</b> (ถ้าไม่ใส่เลขที่ ระบบจะรันให้เอง) หรือวางจาก Excel เป็นคอลัมน์ <b>เลขที่ | ชื่อ-สกุล | ชั้น</b> ได้เลย</p>
+                    <textarea id="bulkInput" rows="5" placeholder="1. นายสมชาย ใจดี&#10;2. นางสาวสมหญิง สดใส&#10;3. เด็กชายรักเรียน ขยัน" class="w-full p-3 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-mono"></textarea>
+                    <button onclick="addBulkStudents()" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-sm">
+                        บันทึกนำเข้าข้อมูลทั้งหมด
+                    </button>
+                </div>
+
+                <div class="border-t border-slate-200 pt-4">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xs font-semibold text-slate-600">รายชื่อในระบบ (<span id="modalStudentCount">0</span> คน)</span>
+                        <button onclick="clearAllStudents()" class="text-xs text-rose-500 hover:text-rose-700 font-medium">
+                            <i class="fa-regular fa-trash-can"></i> ลบทั้งหมด
+                        </button>
+                    </div>
+                    <div id="modalStudentList" class="max-h-48 overflow-y-auto space-y-1.5 pr-1"></div>
+                </div>
+            </div>
+
+            <div class="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end">
+                <button onclick="closeManageModal()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-xl transition">
+                    ปิดหน้าต่าง
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden export card for html2canvas -->
+    <div class="fixed top-[-9999px] left-[-9999px]">
+        <div id="exportCard" class="w-[650px] bg-white p-8 rounded-2xl border border-slate-200 font-sans">
+            <div class="text-center pb-5 border-b-2 border-indigo-500 mb-5">
+                <div class="text-2xl font-bold text-indigo-800 mb-1">สรุปการเช็คชื่อเข้าแถวประจำวัน</div>
+                <div class="text-slate-500 text-sm font-medium">
+                    <span id="exportDateText">วันที่ ...</span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-4 gap-3 mb-6">
+                <div class="bg-emerald-50 border border-emerald-200 p-3 rounded-xl text-center">
+                    <div class="text-xs text-emerald-700 font-medium mb-0.5">มา</div>
+                    <div id="exportPresent" class="text-xl font-bold text-emerald-800">0</div>
+                </div>
+                <div class="bg-amber-50 border border-amber-200 p-3 rounded-xl text-center">
+                    <div class="text-xs text-amber-700 font-medium mb-0.5">สาย</div>
+                    <div id="exportLate" class="text-xl font-bold text-amber-800">0</div>
+                </div>
+                <div class="bg-blue-50 border border-blue-200 p-3 rounded-xl text-center">
+                    <div class="text-xs text-blue-700 font-medium mb-0.5">ลา</div>
+                    <div id="exportLeave" class="text-xl font-bold text-blue-800">0</div>
+                </div>
+                <div class="bg-rose-50 border border-rose-200 p-3 rounded-xl text-center">
+                    <div class="text-xs text-rose-700 font-medium mb-0.5">ขาด</div>
+                    <div id="exportAbsent" class="text-xl font-bold text-rose-800">0</div>
+                </div>
+            </div>
+
+            <table class="w-full text-left border-collapse text-sm mb-4">
+                <thead>
+                    <tr class="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
+                        <th class="py-2.5 px-3 w-16 text-center">เลขที่</th>
+                        <th class="py-2.5 px-3">ชื่อ - นามสกุล</th>
+                        <th class="py-2.5 px-3 text-center w-24">ชั้น</th>
+                        <th class="py-2.5 px-3 text-center w-28">สถานะ</th>
+                    </tr>
+                </thead>
+                <tbody id="exportTableBody" class="divide-y divide-slate-100"></tbody>
+            </table>
+
+            <div class="pt-4 border-t border-slate-100 flex justify-between items-center text-xs text-slate-400">
+                <span>บันทึกโดย: หัวหน้าห้องเรียน</span>
+                <span>สร้างโดยระบบเช็คชื่อเข้าแถวอัตโนมัติ</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="fixed bottom-5 right-5 bg-slate-900/90 text-white text-xs px-4 py-3 rounded-xl shadow-2xl transition duration-300 opacity-0 pointer-events-none transform translate-y-2 z-50 flex items-center gap-2.5 backdrop-blur-sm">
+        <i id="toastIcon" class="fa-solid fa-circle-check text-emerald-400 text-base"></i>
+        <span id="toastMessage">ข้อความแจ้งเตือน</span>
+    </div>
+
+    <script>
+        // ---------- State & Storage ----------
+        const STORAGE_KEY = 'classroomAttendance.v1';
+        const STATUS = {
+            present: { label: 'มา',  icon: 'fa-check',  on: 'bg-emerald-500 text-white border-emerald-500', off: 'bg-white text-emerald-600 border-emerald-200 hover:bg-emerald-50', badge: 'bg-emerald-100 text-emerald-800' },
+            late:    { label: 'สาย', icon: 'fa-clock',  on: 'bg-amber-500 text-white border-amber-500',     off: 'bg-white text-amber-600 border-amber-200 hover:bg-amber-50',       badge: 'bg-amber-100 text-amber-800' },
+            leave:   { label: 'ลา',  icon: 'fa-envelope', on: 'bg-blue-500 text-white border-blue-500',     off: 'bg-white text-blue-600 border-blue-200 hover:bg-blue-50',          badge: 'bg-blue-100 text-blue-800' },
+            absent:  { label: 'ขาด', icon: 'fa-xmark',  on: 'bg-rose-500 text-white border-rose-500',       off: 'bg-white text-rose-600 border-rose-200 hover:bg-rose-50',          badge: 'bg-rose-100 text-rose-800' },
+        };
+
+        let state = { students: [], records: {} }; // records[date][studentId] = status
+        let currentDate = todayStr();
+        let lastKnownToday = todayStr();
+
+        function todayStr() {
+            const d = new Date();
+            const p = n => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+        }
+
+        function load() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    state.students = Array.isArray(parsed.students) ? parsed.students : [];
+                    state.records = parsed.records && typeof parsed.records === 'object' ? parsed.records : {};
+                }
+            } catch (e) { console.warn('load failed', e); }
+        }
+
+        function save() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            } catch (e) {
+                console.warn('save failed', e);
+            }
+        }
+
+        function setSyncState(kind) {
+            const m = {
+                connecting: ['bg-amber-400 animate-ping', 'กำลังเชื่อมต่อ...'],
+                online: ['bg-emerald-400', 'ซิงค์ออนไลน์แล้ว'],
+                offline: ['bg-slate-300', 'ออฟไลน์ (บันทึกในเครื่อง)'],
+                error: ['bg-rose-400', 'เชื่อมต่อไม่สำเร็จ (บันทึกในเครื่อง)'],
+            }[kind];
+            document.getElementById('syncStatus').innerHTML = `<span class="w-2 h-2 rounded-full ${m[0]}"></span> ${m[1]}`;
+        }
+
+        // ---------- Cloud hooks (filled by the Firebase module below) ----------
+        const cloudCall = (fn, ...args) => { try { window.cloud && window.cloud[fn](...args); } catch (e) { console.warn(e); } };
+        function applyCloudStudents(arr) { state.students = arr; save(); render(); }
+        function applyCloudDay(date, records) {
+            if (records && Object.keys(records).length) state.records[date] = records; else delete state.records[date];
+            save();
+            if (date === currentDate) render();
+        }
+        function getLocalDay(date) { return state.records[date] || {}; }
+        function getLocalStudents() { return state.students; }
+        function getCurrentDate() { return currentDate; }
+
+        function genId() { return 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+        function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+        function dayRecords() { return state.records[currentDate] || {}; }
+
+        function thaiDate(dateStr) {
+            const [y, m, d] = dateStr.split('-').map(Number);
+            return new Date(y, m - 1, d).toLocaleDateString('th-TH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        }
+
+        // ---------- Toast ----------
+        let toastTimer;
+        function toast(msg, type = 'success') {
+            const t = document.getElementById('toast');
+            document.getElementById('toastMessage').textContent = msg;
+            const icon = document.getElementById('toastIcon');
+            icon.className = type === 'error'
+                ? 'fa-solid fa-circle-exclamation text-rose-400 text-base'
+                : 'fa-solid fa-circle-check text-emerald-400 text-base';
+            t.classList.remove('opacity-0', 'translate-y-2');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => t.classList.add('opacity-0', 'translate-y-2'), 2400);
+        }
+
+        // ---------- Rendering ----------
+        function render() {
+            const list = document.getElementById('studentList');
+            const recs = dayRecords();
+            const counts = { present: 0, late: 0, leave: 0, absent: 0 };
+
+            document.getElementById('emptyList').classList.toggle('hidden', state.students.length > 0);
+
+            list.innerHTML = sortedStudents().map((s, i) => {
+                const cur = recs[s.id];
+                if (cur && counts[cur] !== undefined) counts[cur]++;
+                const btns = Object.keys(STATUS).map(k => {
+                    const st = STATUS[k];
+                    return `<button onclick="setStatus('${s.id}','${k}')" class="btn-status flex-1 sm:flex-none sm:w-16 px-2 py-2 text-xs font-semibold rounded-xl border ${cur === k ? st.on : st.off}">
+                        <i class="fa-solid ${st.icon} mr-0.5"></i> ${st.label}</button>`;
+                }).join('');
+                return `<div class="px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-4">
+                    <div class="flex items-center gap-3 flex-1 min-w-0">
+                        <span class="min-w-[2rem] h-8 px-1.5 shrink-0 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-bold flex items-center justify-center" title="เลขที่">${esc(dispNo(s, i))}</span>
+                        <div class="min-w-0">
+                            <div class="text-sm font-medium text-slate-700 truncate">${esc(s.name)}</div>
+                            ${s.cls ? `<div class="text-[11px] text-slate-400">ชั้น ${esc(s.cls)}</div>` : ''}
+                        </div>
+                    </div>
+                    <div class="flex gap-1.5">${btns}</div>
+                </div>`;
+            }).join('');
+
+            const total = state.students.length;
+            const marked = counts.present + counts.late + counts.leave + counts.absent;
+            document.getElementById('statTotal').textContent = total + ' คน';
+            document.getElementById('statPresent').textContent = counts.present;
+            document.getElementById('statLate').textContent = counts.late;
+            document.getElementById('statLeave').textContent = counts.leave;
+            document.getElementById('statAbsent').textContent = counts.absent;
+
+            const unmarked = total - marked;
+            const badge = document.getElementById('unmarkedBadge');
+            badge.textContent = unmarked === 0 && total > 0 ? 'เช็คครบแล้ว' : `ยังไม่เช็ค ${unmarked} คน`;
+            badge.className = 'text-xs px-3 py-1 rounded-full font-semibold ' +
+                (unmarked === 0 && total > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800');
+
+            renderModalList();
+        }
+
+        function sortedStudents() {
+            return state.students.map((s, i) => ({ s, i })).sort((a, b) => {
+                const c = String(a.s.cls || '').localeCompare(String(b.s.cls || ''), 'th', { numeric: true });
+                if (c) return c;
+                const an = Number(a.s.no) || 1e9, bn = Number(b.s.no) || 1e9;
+                return an - bn || a.i - b.i;
+            }).map(x => x.s);
+        }
+        function dispNo(s, i) { return s.no ? s.no : (i + 1); }
+
+        function renderModalList() {
+            document.getElementById('modalStudentCount').textContent = state.students.length;
+            document.getElementById('modalStudentList').innerHTML = state.students.length === 0
+                ? '<p class="text-xs text-slate-400 text-center py-3">ยังไม่มีรายชื่อ</p>'
+                : sortedStudents().map((s, i) => `
+                    <div class="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-1.5">
+                        <span class="text-xs text-slate-700 truncate"><span class="text-slate-400 mr-1.5">${esc(dispNo(s, i))}.</span>${esc(s.name)}${s.cls ? `<span class="ml-1.5 text-slate-400">(${esc(s.cls)})</span>` : ''}</span>
+                        <button onclick="deleteStudent('${s.id}')" class="text-rose-400 hover:text-rose-600 ml-2 text-xs"><i class="fa-regular fa-trash-can"></i></button>
+                    </div>`).join('');
+        }
+
+        // ---------- Attendance actions ----------
+        function setStatus(id, status) {
+            if (!state.records[currentDate]) state.records[currentDate] = {};
+            // tap again to un-mark
+            if (state.records[currentDate][id] === status) {
+                delete state.records[currentDate][id];
+                cloudCall('setRecord', currentDate, id, null);
+            } else {
+                state.records[currentDate][id] = status;
+                cloudCall('setRecord', currentDate, id, status);
+            }
+            save(); render();
+        }
+
+        function markAll(status) {
+            if (state.students.length === 0) return toast('ยังไม่มีรายชื่อนักเรียน', 'error');
+            state.records[currentDate] = {};
+            state.students.forEach(s => state.records[currentDate][s.id] = status);
+            cloudCall('setDay', currentDate, state.records[currentDate]);
+            save(); render();
+            toast(status === 'present' ? 'ตั้งค่าเป็น "มา" ทั้งหมดแล้ว' : 'ตั้งค่าเป็น "ขาด" ทั้งหมดแล้ว');
+        }
+
+        function resetTodayAttendance() {
+            if (!confirm('ล้างสถานะเช็คชื่อของวันที่เลือกทั้งหมด?')) return;
+            delete state.records[currentDate];
+            cloudCall('setDay', currentDate, {});
+            save(); render();
+            toast('รีเซ็ตสถานะแล้ว');
+        }
+
+        function changeDate() {
+            const v = document.getElementById('attendanceDate').value;
+            currentDate = v || todayStr();
+            document.getElementById('attendanceDate').value = currentDate;
+            cloudCall('subscribeDay', currentDate);
+            render();
+        }
+
+        // ---------- Student management ----------
+        function openManageModal() { document.getElementById('manageModal').classList.remove('hidden'); renderModalList(); }
+        function closeManageModal() { document.getElementById('manageModal').classList.add('hidden'); }
+
+        function switchManageTab(tab) {
+            const single = tab === 'single';
+            document.getElementById('tabSingle').classList.toggle('hidden', !single);
+            document.getElementById('tabBulk').classList.toggle('hidden', single);
+            document.getElementById('tabSingleBtn').className = 'py-2.5 px-4 text-xs font-semibold ' + (single ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-400 hover:text-slate-600');
+            document.getElementById('tabBulkBtn').className = 'py-2.5 px-4 text-xs font-semibold ' + (!single ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-400 hover:text-slate-600');
+        }
+
+        function nextNo(cls) {
+            const nums = state.students.filter(s => (s.cls || '') === cls).map(s => Number(s.no) || 0);
+            return (nums.length ? Math.max(...nums) : 0) + 1;
+        }
+
+        function addSingleStudent(e) {
+            e.preventDefault();
+            const noEl = document.getElementById('singleNoInput');
+            const clsEl = document.getElementById('singleClassInput');
+            const nameEl = document.getElementById('singleNameInput');
+            const name = nameEl.value.trim();
+            const cls = clsEl.value.trim();
+            if (!name) return;
+            const no = parseInt(noEl.value, 10) || nextNo(cls);
+            state.students.push({ id: genId(), name, cls, no });
+            nameEl.value = '';
+            noEl.value = '';
+            nameEl.focus();
+            cloudCall('setStudents', state.students);
+            save(); render();
+            toast(`เพิ่มเลขที่ ${no} แล้ว`);
+        }
+
+        function addBulkStudents() {
+            const defCls = document.getElementById('bulkClassInput').value.trim();
+            const ta = document.getElementById('bulkInput');
+            const lines = ta.value.split('\n').map(l => l.trim()).filter(Boolean);
+            const added = [];
+            const counters = {};
+            lines.forEach(line => {
+                let no = NaN, name = '', cls = defCls;
+                if (line.includes('\t')) {
+                    // วางจาก Excel: เลขที่ | ชื่อ-สกุล | ชั้น
+                    const c = line.split('\t').map(x => x.trim());
+                    if (/^\d+$/.test(c[0])) { no = parseInt(c[0], 10); name = c[1] || ''; if (c[2]) cls = c[2]; }
+                    else { name = c[0]; if (c[1]) cls = c[1]; }
+                } else {
+                    const m = line.match(/^(\d+)\s*[.)\-:]?\s+(.+)$/);
+                    if (m) { no = parseInt(m[1], 10); name = m[2].trim(); } else name = line;
+                }
+                if (!name) return;
+                if (!(cls in counters)) counters[cls] = nextNo(cls) - 1;
+                if (isNaN(no)) no = ++counters[cls]; else counters[cls] = Math.max(counters[cls], no);
+                added.push({ id: genId(), name, cls, no });
+            });
+            if (added.length === 0) return toast('กรุณากรอกรายชื่อ', 'error');
+            state.students.push(...added);
+            ta.value = '';
+            cloudCall('setStudents', state.students);
+            save(); render();
+            switchManageTab('single');
+            toast(`นำเข้า ${added.length} คนเรียบร้อย`);
+        }
+
+        function deleteStudent(id) {
+            state.students = state.students.filter(s => s.id !== id);
+            Object.entries(state.records).forEach(([d, r]) => { if (id in r) { delete r[id]; cloudCall('setRecord', d, id, null); } });
+            cloudCall('setStudents', state.students);
+            save(); render();
+        }
+
+        function clearAllStudents() {
+            if (state.students.length === 0) return;
+            if (!confirm('ลบรายชื่อนักเรียนและประวัติการเช็คชื่อทั้งหมด? การกระทำนี้ย้อนกลับไม่ได้')) return;
+            Object.keys(state.records).forEach(d => cloudCall('setDay', d, {}));
+            state.students = [];
+            state.records = {};
+            cloudCall('setStudents', []);
+            save(); render();
+            toast('ลบข้อมูลทั้งหมดแล้ว');
+        }
+
+        // ---------- Export to image ----------
+        async function exportToImage() {
+            if (state.students.length === 0) return toast('ยังไม่มีรายชื่อนักเรียน', 'error');
+            if (typeof html2canvas === 'undefined') return toast('โหลดตัวสร้างรูปภาพไม่สำเร็จ', 'error');
+
+            const recs = dayRecords();
+            const counts = { present: 0, late: 0, leave: 0, absent: 0 };
+            const badgeStyle = {
+                present: 'background:#D1FAE5;color:#065F46', late: 'background:#FEF3C7;color:#92400E',
+                leave: 'background:#DBEAFE;color:#1E40AF', absent: 'background:#FEE2E2;color:#991B1B',
+                none: 'background:#F1F5F9;color:#64748B'
+            };
+
+            document.getElementById('exportTableBody').innerHTML = sortedStudents().map((s, i) => {
+                const st = recs[s.id];
+                if (st && counts[st] !== undefined) counts[st]++;
+                const label = st ? STATUS[st].label : 'ยังไม่เช็ค';
+                return `<tr><td class="py-2 px-3 text-center text-slate-500">${esc(dispNo(s, i))}</td>
+                    <td class="py-2 px-3 text-slate-700">${esc(s.name)}</td>
+                    <td class="py-2 px-3 text-center text-slate-500">${esc(s.cls || '-')}</td>
+                    <td class="py-2 px-3 text-center"><span style="${badgeStyle[st || 'none']};padding:2px 12px;border-radius:999px;font-size:12px;font-weight:600;display:inline-block">${label}</span></td></tr>`;
+            }).join('');
+
+            document.getElementById('exportDateText').textContent = 'วัน' + thaiDate(currentDate);
+            document.getElementById('exportPresent').textContent = counts.present;
+            document.getElementById('exportLate').textContent = counts.late;
+            document.getElementById('exportLeave').textContent = counts.leave;
+            document.getElementById('exportAbsent').textContent = counts.absent;
+
+            try {
+                toast('กำลังสร้างรูปภาพ...');
+                const canvas = await html2canvas(document.getElementById('exportCard'), { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+                const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+                const fileName = `เช็คชื่อ-${currentDate}.png`;
+                const file = new File([blob], fileName, { type: 'image/png' });
+
+                if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                    try { await navigator.share({ files: [file], title: 'สรุปการเช็คชื่อเข้าแถว' }); return; }
+                    catch (err) { if (err.name === 'AbortError') return; }
+                }
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = fileName;
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+                toast('บันทึกรูปภาพแล้ว');
+            } catch (err) {
+                console.error(err);
+                toast('สร้างรูปภาพไม่สำเร็จ', 'error');
+            }
+        }
+
+        // ---------- Midnight rollover ----------
+        function checkMidnight() {
+            const now = todayStr();
+            if (now !== lastKnownToday) {
+                const wasViewingToday = currentDate === lastKnownToday;
+                lastKnownToday = now;
+                if (wasViewingToday) {
+                    currentDate = now;
+                    document.getElementById('attendanceDate').value = now;
+                    document.getElementById('resetAlert').classList.remove('hidden');
+                    cloudCall('subscribeDay', currentDate);
+                    render();
+                }
+            }
+        }
+
+        // ---------- Init ----------
+        window.addEventListener('storage', e => { if (e.key === STORAGE_KEY) { load(); render(); } });
+        document.getElementById('manageModal').addEventListener('click', e => { if (e.target.id === 'manageModal') closeManageModal(); });
+        load();
+        document.getElementById('attendanceDate').value = currentDate;
+        render();
+        setInterval(checkMidnight, 30000);
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) checkMidnight(); });
+    </script>
+
+    <!-- Firebase (Anonymous Auth + Firestore realtime sync) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDV6h1qfZgI3hpfRqu8eCVZQmDXUGTi49A",
+            authDomain: "checkcheck-98b58.firebaseapp.com",
+            projectId: "checkcheck-98b58",
+            storageBucket: "checkcheck-98b58.firebasestorage.app",
+            messagingSenderId: "683852853021",
+            appId: "1:683852853021:web:649cb55ddbb61218d0fbf4",
+            measurementId: "G-6T552XNXF0"
+        };
+
+        const ROOM = 'main'; // ทุกเครื่องที่เปิดไฟล์นี้จะใช้ห้องเดียวกัน
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const metaRef = doc(db, 'classrooms', ROOM);
+        const dayRef = d => doc(db, 'classrooms', ROOM, 'days', d);
+
+        let unsubDay = null, subDate = null, authed = false;
+        const fail = e => { console.error(e); setSyncState(navigator.onLine ? 'error' : 'offline'); };
+
+        function subscribeDay(date) {
+            if (!authed || date === subDate) return;
+            if (unsubDay) unsubDay();
+            subDate = date;
+            unsubDay = onSnapshot(dayRef(date), snap => {
+                if (snap.exists()) {
+                    applyCloudDay(date, snap.data().records || {});
+                } else {
+                    const local = getLocalDay(date);
+                    if (Object.keys(local).length) setDoc(dayRef(date), { records: local }).catch(fail); // อัปโหลดข้อมูลเดิมในเครื่องขึ้นคลาวด์
+                    else applyCloudDay(date, {});
+                }
+                setSyncState('online');
+            }, fail);
+        }
+
+        window.cloud = {
+            subscribeDay,
+            setStudents: list => setDoc(metaRef, { students: list }).catch(fail),
+            setRecord: (date, id, status) =>
+                setDoc(dayRef(date), { records: { [id]: status === null ? deleteField() : status } }, { merge: true }).catch(fail),
+            setDay: (date, records) =>
+                (Object.keys(records).length ? setDoc(dayRef(date), { records }) : deleteDoc(dayRef(date))).catch(fail),
+        };
+
+        window.addEventListener('online', () => setSyncState('online'));
+        window.addEventListener('offline', () => setSyncState('offline'));
+
+        signInAnonymously(auth).then(() => {
+            authed = true;
+            onSnapshot(metaRef, snap => {
+                if (snap.exists()) applyCloudStudents(snap.data().students || []);
+                else if (getLocalStudents().length) setDoc(metaRef, { students: getLocalStudents() }).catch(fail); // อัปโหลดรายชื่อเดิมขึ้นคลาวด์
+                setSyncState('online');
+            }, fail);
+            subscribeDay(getCurrentDate());
+        }).catch(fail);
+    </script>
+</body>
+</html>
