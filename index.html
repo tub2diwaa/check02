@@ -368,14 +368,14 @@
             }
         }
 
-        function setSyncState(kind) {
+        function setSyncState(kind, detail) {
             const m = {
                 connecting: ['bg-amber-400 animate-ping', 'กำลังเชื่อมต่อ...'],
                 online: ['bg-emerald-400', 'ซิงค์ออนไลน์แล้ว'],
                 offline: ['bg-slate-300', 'ออฟไลน์ (บันทึกในเครื่อง)'],
                 error: ['bg-rose-400', 'เชื่อมต่อไม่สำเร็จ (บันทึกในเครื่อง)'],
             }[kind];
-            document.getElementById('syncStatus').innerHTML = `<span class="w-2 h-2 rounded-full ${m[0]}"></span> ${m[1]}`;
+            document.getElementById('syncStatus').innerHTML = `<span class="w-2 h-2 rounded-full ${m[0]}"></span> ${m[1]}${detail ? ` <span class="opacity-80">[${String(detail).replace(/[<>&]/g, '')}]</span>` : ''}`;
         }
 
         // ---------- Cloud hooks (filled by the Firebase module below) ----------
@@ -695,15 +695,16 @@
         document.addEventListener('visibilitychange', () => { if (!document.hidden) checkMidnight(); });
     </script>
 
-    <!-- Firebase (Anonymous Auth + Firestore realtime sync) -->
+    <!-- Firebase (Anonymous Auth + Realtime Database sync) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getDatabase, ref, set, remove, onValue } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyDV6h1qfZgI3hpfRqu8eCVZQmDXUGTi49A",
             authDomain: "checkcheck-98b58.firebaseapp.com",
+            databaseURL: "https://checkcheck-98b58-default-rtdb.asia-southeast1.firebasedatabase.app",
             projectId: "checkcheck-98b58",
             storageBucket: "checkcheck-98b58.firebasestorage.app",
             messagingSenderId: "683852853021",
@@ -717,38 +718,47 @@
         }
         // รหัสห้องถูกแปลงเป็นแฮช ไม่ได้เก็บรหัสจริงไว้บนฐานข้อมูล
         const ROOM = ROOM_CODE ? await sha256('classroom:' + ROOM_CODE) : 'none';
+
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
-        const db = getFirestore(app);
-        const metaRef = doc(db, 'classrooms', ROOM);
-        const dayRef = d => doc(db, 'classrooms', ROOM, 'days', d);
+        const db = getDatabase(app);
+        const base = `classrooms/${ROOM}`;
+        const studentsRef = () => ref(db, `${base}/students`);
+        const dayRef = d => ref(db, `${base}/days/${d}`);
+        const recRef = (d, id) => ref(db, `${base}/days/${d}/${id}`);
 
         let unsubDay = null, subDate = null, authed = false;
-        const fail = e => { console.error(e); setSyncState(navigator.onLine ? 'error' : 'offline'); };
+        const fail = e => { console.error(e); setSyncState(navigator.onLine ? 'error' : 'offline', e && (e.code || e.message)); };
+
+        const toMap = list => {
+            const o = {};
+            list.forEach(s => { o[s.id] = { name: s.name, cls: s.cls || '', no: Number(s.no) || 0 }; });
+            return o;
+        };
 
         function subscribeDay(date) {
             if (!authed || date === subDate) return;
             if (unsubDay) unsubDay();
             subDate = date;
-            unsubDay = onSnapshot(dayRef(date), snap => {
+            let seen = false;
+            unsubDay = onValue(dayRef(date), snap => {
                 if (snap.exists()) {
-                    applyCloudDay(date, snap.data().records || {});
+                    applyCloudDay(date, snap.val());
                 } else {
                     const local = getLocalDay(date);
-                    if (Object.keys(local).length) setDoc(dayRef(date), { records: local }).catch(fail); // อัปโหลดข้อมูลเดิมในเครื่องขึ้นคลาวด์
+                    if (!seen && Object.keys(local).length) set(dayRef(date), local).catch(fail); // อัปโหลดข้อมูลเดิมในเครื่องขึ้นคลาวด์
                     else applyCloudDay(date, {});
                 }
+                seen = true;
                 setSyncState('online');
             }, fail);
         }
 
         window.cloud = {
             subscribeDay,
-            setStudents: list => setDoc(metaRef, { students: list }).catch(fail),
-            setRecord: (date, id, status) =>
-                setDoc(dayRef(date), { records: { [id]: status === null ? deleteField() : status } }, { merge: true }).catch(fail),
-            setDay: (date, records) =>
-                (Object.keys(records).length ? setDoc(dayRef(date), { records }) : deleteDoc(dayRef(date))).catch(fail),
+            setStudents: list => (list.length ? set(studentsRef(), toMap(list)) : remove(studentsRef())).catch(fail),
+            setRecord: (date, id, status) => (status === null ? remove(recRef(date, id)) : set(recRef(date, id), status)).catch(fail),
+            setDay: (date, records) => (Object.keys(records).length ? set(dayRef(date), records) : remove(dayRef(date))).catch(fail),
         };
 
         window.addEventListener('online', () => setSyncState('online'));
@@ -756,9 +766,16 @@
 
         if (ROOM_CODE) signInAnonymously(auth).then(() => {
             authed = true;
-            onSnapshot(metaRef, snap => {
-                if (snap.exists()) applyCloudStudents(snap.data().students || []);
-                else if (getLocalStudents().length) setDoc(metaRef, { students: getLocalStudents() }).catch(fail); // อัปโหลดรายชื่อเดิมขึ้นคลาวด์
+            let seenStudents = false;
+            onValue(studentsRef(), snap => {
+                if (snap.exists()) {
+                    applyCloudStudents(Object.entries(snap.val()).map(([id, s]) => ({ id, name: s.name, cls: s.cls || '', no: s.no || 0 })));
+                } else if (!seenStudents && getLocalStudents().length) {
+                    set(studentsRef(), toMap(getLocalStudents())).catch(fail); // อัปโหลดรายชื่อเดิมในเครื่องขึ้นคลาวด์
+                } else {
+                    applyCloudStudents([]);
+                }
+                seenStudents = true;
                 setSyncState('online');
             }, fail);
             subscribeDay(getCurrentDate());
