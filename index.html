@@ -56,6 +56,9 @@
                     <i class="fa-solid fa-user-gear"></i>
                     <span>จัดการนักเรียน</span>
                 </button>
+                <button onclick="leaveRoom()" title="ออกจากห้อง" class="bg-indigo-500 hover:bg-indigo-700 text-white px-3 py-2 rounded-xl text-xs transition shadow-sm border border-indigo-400/30">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                </button>
             </div>
         </div>
     </header>
@@ -177,6 +180,22 @@
             <div id="studentList" class="divide-y divide-slate-100"></div>
         </div>
     </main>
+
+    <!-- Room code gate -->
+    <div id="roomGate" class="hidden fixed inset-0 z-[60] bg-indigo-600 flex items-center justify-center p-5">
+        <form onsubmit="enterRoom(event)" class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <div class="text-center">
+                <div class="w-14 h-14 mx-auto mb-3 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center text-2xl">
+                    <i class="fa-solid fa-lock"></i>
+                </div>
+                <h2 class="font-bold text-lg text-slate-800">เข้าสู่ห้องเรียน</h2>
+                <p class="text-xs text-slate-500 mt-1">ตั้งรหัสห้องของคุณ (ยาวอย่างน้อย 6 ตัว) ทุกเครื่องที่ใส่รหัสเดียวกันจะเห็นข้อมูลชุดเดียวกัน ห้ามบอกคนอื่น</p>
+            </div>
+            <input type="password" id="roomCodeInput" required minlength="6" autocomplete="off" placeholder="รหัสห้อง"
+                   class="w-full px-4 py-2.5 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none">
+            <button type="submit" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition shadow-sm">เข้าใช้งาน</button>
+        </form>
+    </div>
 
     <!-- Modal: Manage Students -->
     <div id="manageModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
@@ -310,7 +329,9 @@
 
     <script>
         // ---------- State & Storage ----------
-        const STORAGE_KEY = 'classroomAttendance.v1';
+        // รหัสห้อง: ใช้แยกข้อมูลแต่ละห้อง และเป็นตัวกันไม่ให้คนอื่นเข้าถึงข้อมูล
+        const ROOM_CODE = (() => { try { return localStorage.getItem('attendance.room') || ''; } catch (e) { return ''; } })();
+        const STORAGE_KEY = 'classroomAttendance.v2.' + ROOM_CODE;
         const STATUS = {
             present: { label: 'มา',  icon: 'fa-check',  on: 'bg-emerald-500 text-white border-emerald-500', off: 'bg-white text-emerald-600 border-emerald-200 hover:bg-emerald-50', badge: 'bg-emerald-100 text-emerald-800' },
             late:    { label: 'สาย', icon: 'fa-clock',  on: 'bg-amber-500 text-white border-amber-500',     off: 'bg-white text-amber-600 border-amber-200 hover:bg-amber-50',       badge: 'bg-amber-100 text-amber-800' },
@@ -649,9 +670,24 @@
             }
         }
 
+        // ---------- Room code gate ----------
+        function enterRoom(e) {
+            e.preventDefault();
+            const code = document.getElementById('roomCodeInput').value.trim();
+            if (code.length < 6) return toast('รหัสห้องต้องยาวอย่างน้อย 6 ตัวอักษร', 'error');
+            try { localStorage.setItem('attendance.room', code); } catch (err) { return toast('บันทึกรหัสไม่สำเร็จ', 'error'); }
+            location.reload();
+        }
+        function leaveRoom() {
+            if (!confirm('ออกจากห้องนี้? (ข้อมูลยังอยู่ในระบบ ใส่รหัสเดิมเพื่อกลับเข้ามาได้)')) return;
+            try { localStorage.removeItem('attendance.room'); } catch (err) {}
+            location.reload();
+        }
+
         // ---------- Init ----------
         window.addEventListener('storage', e => { if (e.key === STORAGE_KEY) { load(); render(); } });
         document.getElementById('manageModal').addEventListener('click', e => { if (e.target.id === 'manageModal') closeManageModal(); });
+        if (!ROOM_CODE) document.getElementById('roomGate').classList.remove('hidden');
         load();
         document.getElementById('attendanceDate').value = currentDate;
         render();
@@ -675,7 +711,12 @@
             measurementId: "G-6T552XNXF0"
         };
 
-        const ROOM = 'main'; // ทุกเครื่องที่เปิดไฟล์นี้จะใช้ห้องเดียวกัน
+        async function sha256(text) {
+            const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+            return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+        // รหัสห้องถูกแปลงเป็นแฮช ไม่ได้เก็บรหัสจริงไว้บนฐานข้อมูล
+        const ROOM = ROOM_CODE ? await sha256('classroom:' + ROOM_CODE) : 'none';
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
@@ -713,7 +754,7 @@
         window.addEventListener('online', () => setSyncState('online'));
         window.addEventListener('offline', () => setSyncState('offline'));
 
-        signInAnonymously(auth).then(() => {
+        if (ROOM_CODE) signInAnonymously(auth).then(() => {
             authed = true;
             onSnapshot(metaRef, snap => {
                 if (snap.exists()) applyCloudStudents(snap.data().students || []);
