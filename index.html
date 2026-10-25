@@ -622,10 +622,10 @@
                 return `<tr><td class="py-2 px-3 text-center text-slate-500">${esc(dispNo(s, i))}</td>
                     <td class="py-2 px-3 text-slate-700">${esc(s.name)}</td>
                     <td class="py-2 px-3 text-center text-slate-500">${esc(s.cls || '-')}</td>
-                    <td class="py-2 px-3 text-center"><span style="${badgeStyle[st || 'none']};padding:2px 12px;border-radius:999px;font-size:12px;font-weight:600;display:inline-block">${label}</span></td></tr>`;
+                    <td class="py-2 px-3 text-center"><span style="${badgeStyle[st || 'none']};padding:0 12px;border-radius:999px;font-size:12px;font-weight:600;display:inline-block;line-height:24px;height:24px;white-space:nowrap">${label}</span></td></tr>`;
             }).join('');
 
-            document.getElementById('exportDateText').textContent = 'วัน' + thaiDate(currentDate);
+            document.getElementById('exportDateText').textContent = thaiDate(currentDate);
             document.getElementById('exportPresent').textContent = counts.present;
             document.getElementById('exportLate').textContent = counts.late;
             document.getElementById('exportLeave').textContent = counts.leave;
